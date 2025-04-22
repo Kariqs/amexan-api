@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -19,7 +18,6 @@ func Signup(ctx *gin.Context) {
 	err := ctx.ShouldBindJSON(&signUpData)
 	if err != nil {
 		ctx.JSON(400, gin.H{"message": "invalid input"})
-		log.Fatal(err)
 		return
 	}
 
@@ -58,7 +56,7 @@ func Login(ctx *gin.Context) {
 	var loginData models.LoginData
 	err := ctx.ShouldBindJSON(&loginData)
 	if err != nil {
-		ctx.JSON(400, gin.H{"error": "invalid input"})
+		ctx.JSON(400, gin.H{"message": "invalid input"})
 		return
 	}
 
@@ -66,14 +64,14 @@ func Login(ctx *gin.Context) {
 	var user models.User
 	result := initializers.DB.Where("email = ? OR username = ?", loginData.Email, loginData.Email).Find(&user)
 	if result.RowsAffected == 0 {
-		ctx.JSON(400, gin.H{"error": "invalid username or password"})
+		ctx.JSON(400, gin.H{"message": "invalid username or password"})
 		return
 	}
 
 	//check if the password is correct
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginData.Password))
 	if err != nil {
-		ctx.JSON(400, gin.H{"error": "invalid username or password"})
+		ctx.JSON(400, gin.H{"message": "invalid username or password"})
 		return
 	}
 
@@ -90,7 +88,7 @@ func Login(ctx *gin.Context) {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	tokenString, err := token.SignedString([]byte(jwtSecret))
 	if err != nil {
-		ctx.JSON(500, gin.H{"error": "failed to generate token"})
+		ctx.JSON(500, gin.H{"message": "failed to generate token"})
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"token": tokenString})

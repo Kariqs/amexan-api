@@ -7,12 +7,12 @@ type User struct {
 	Fullname        string `json:"fullname"`
 	Username        string `json:"username"`
 	Email           string `json:"email"`
-	Phone           int    `json:"phone"`
+	Phone           string `json:"phone"`
 	Occupation      string `json:"occupation"`
 	Password        string `json:"password"`
 	Role            string `json:"role"`
-	AcceptTerms     bool   `json:"acceptterms"`
-	SubscribeToNews bool   `json:"subscribetonews"`
+	AcceptTerms     bool   `json:"acceptTerms"`
+	SubscribeToNews bool   `json:"subscribeToNews"`
 }
 
 type LoginData struct {

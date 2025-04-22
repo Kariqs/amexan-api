@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -17,7 +18,8 @@ func Signup(ctx *gin.Context) {
 	var signUpData models.User
 	err := ctx.ShouldBindJSON(&signUpData)
 	if err != nil {
-		ctx.JSON(400, gin.H{"error": "invalid input"})
+		ctx.JSON(400, gin.H{"message": "invalid input"})
+		log.Fatal(err)
 		return
 	}
 
@@ -26,14 +28,14 @@ func Signup(ctx *gin.Context) {
 	user := initializers.DB.Where("email = ? OR username = ?", signUpData.Email, signUpData.Username).Find(&existingUser)
 
 	if user.RowsAffected > 0 {
-		ctx.JSON(400, gin.H{"error": "user already exists"})
+		ctx.JSON(400, gin.H{"message": "user already exists"})
 		return
 	}
 
 	//hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(signUpData.Password), 10)
 	if err != nil {
-		ctx.JSON(500, gin.H{"error": "failed to hash password"})
+		ctx.JSON(500, gin.H{"message": "failed to hash password"})
 		return
 	}
 	signUpData.Password = string(hashedPassword)
@@ -46,10 +48,10 @@ func Signup(ctx *gin.Context) {
 	//create the user in the database
 	result := initializers.DB.Create(&signUpData)
 	if result.Error != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "failed to create user"})
 		return
 	}
-	ctx.JSON(http.StatusCreated, gin.H{"message": "user created successfully"})
+	ctx.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
 }
 
 func Login(ctx *gin.Context) {

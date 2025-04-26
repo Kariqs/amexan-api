@@ -24,7 +24,8 @@ type Product struct {
 	Name           string         `json:"name" binding:"required"`
 	Description    string         `json:"description" binding:"required"`
 	Price          int            `json:"price" binding:"required"`
+	Category       string         `json:"category" binding:"required"`
 	Colors         datatypes.JSON `json:"colors"`
-	Specifications []ProductSpecs `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE" binding:"required"`
-	Images         []ProductImage `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE" binding:"required"`
+	Specifications []ProductSpecs `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE"`
+	Images         []ProductImage `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE"`
 }

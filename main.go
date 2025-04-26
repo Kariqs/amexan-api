@@ -27,5 +27,6 @@ func main() {
 	}))
 	routes.DefaultRoutes(server)
 	routes.AuthRoutes(server)
+	routes.ProductRoutes(server)
 	server.Run()
 }

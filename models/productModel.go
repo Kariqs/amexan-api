@@ -7,7 +7,7 @@ import (
 
 type ProductSpecs struct {
 	gorm.Model
-	Label     string `json:"label" binding:"required"`
+	Name     string `json:"name" binding:"required"`
 	Value     string `json:"value" binding:"required"`
 	ProductID int    `json:"productId" binding:"required"`
 }

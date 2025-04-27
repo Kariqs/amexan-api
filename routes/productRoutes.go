@@ -7,4 +7,6 @@ import (
 
 func ProductRoutes(server *gin.Engine) {
 	server.POST("/product", controllers.CreateProduct)
+	server.POST("/product-specs", controllers.CreateProductSpecs)
+	server.POST("/product-images", controllers.UploadProductImages)
 }

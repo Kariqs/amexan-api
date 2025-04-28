@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func CreateProduct(ctx *gin.Context) {
@@ -126,4 +128,33 @@ func UploadProductImages(ctx *gin.Context) {
 		"message": "Files uploaded and saved successfully",
 		"urls":    uploadedUrls,
 	})
+}
+
+func GetProducts(ctx *gin.Context) {
+	var products []models.Product
+	result := initializers.DB.Preload("Images").Find(&products)
+	if result.Error != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "unable to fetch products."})
+		return
+	}
+	ctx.JSON(http.StatusOK, products)
+}
+
+func GetProduct(ctx *gin.Context) {
+	productId, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(400, gin.H{"message": "product Id has some issues"})
+		return
+	}
+	var product models.Product
+	result := initializers.DB.Preload("Specifications").Preload("Images").First(&product, productId)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			ctx.JSON(http.StatusNotFound, gin.H{"message": "product not found"})
+			return
+		}
+		ctx.JSON(400, gin.H{"message": "Unable to retrieve product."})
+		return
+	}
+	ctx.JSON(200, product)
 }

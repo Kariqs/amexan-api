@@ -1,12 +1,14 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/Kariqs/amexan-api/initializers"
 	"github.com/Kariqs/amexan-api/models"
+	"github.com/Kariqs/amexan-api/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -43,13 +45,36 @@ func Signup(ctx *gin.Context) {
 		signUpData.Role = "user"
 	}
 
+	//Genarate and assign activation token
+	activationToken, err := utils.GenerateCode(16)
+	if err != nil {
+		ctx.JSON(400, gin.H{"message": "unable to process activation token."})
+	}
+	signUpData.AccountActivationToken = activationToken
+	signUpData.AccountActivated = false
+
 	//create the user in the database
 	result := initializers.DB.Create(&signUpData)
 	if result.Error != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "failed to create user"})
 		return
 	}
-	ctx.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
+
+	//send email to the user
+	emailData := utils.EmailData{
+		Name:            signUpData.Username,
+		Message:         "Thank you for signing up! Click the button below to verify your account.",
+		VerificationURL: "https://benard-kariuki.vercel.app/",
+		LogoURL:         "https://yourdomain.com/logo.png",
+	}
+	err = utils.SendEmail(signUpData.Email, "Account Verification", emailData)
+	if err != nil {
+		log.Println("Error sending email:", err)
+	} else {
+		log.Println("Email sent successfully!")
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{"message": "User created successfully. Check your email to activate your account."})
 }
 
 func Login(ctx *gin.Context) {
@@ -94,3 +119,8 @@ func Login(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"token": tokenString})
 
 }
+
+func ActivateAccount(ctx *gin.Context) {
+
+}
+

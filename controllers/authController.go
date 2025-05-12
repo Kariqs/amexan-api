@@ -87,8 +87,12 @@ func Login(ctx *gin.Context) {
 
 	//check if the user exists
 	var user models.User
-	result := initializers.DB.Where("email = ? OR username = ?", loginData.Email, loginData.Email).Find(&user)
+	result := initializers.DB.Where("email = ? OR username = ?", loginData.Identifier, loginData.Identifier).First(&user)
 	if result.RowsAffected == 0 {
+		ctx.JSON(400, gin.H{"message": "invalid username or password"})
+		return
+	}
+	if result.Error != nil {
 		ctx.JSON(400, gin.H{"message": "invalid username or password"})
 		return
 	}
@@ -97,6 +101,12 @@ func Login(ctx *gin.Context) {
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginData.Password))
 	if err != nil {
 		ctx.JSON(400, gin.H{"message": "invalid username or password"})
+		return
+	}
+
+	//check if account is activated
+	if !user.AccountActivated {
+		ctx.JSON(400, gin.H{"message": "Account not activated, check your email to activate email."})
 		return
 	}
 
@@ -123,4 +133,3 @@ func Login(ctx *gin.Context) {
 func ActivateAccount(ctx *gin.Context) {
 
 }
-

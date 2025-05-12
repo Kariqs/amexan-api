@@ -20,6 +20,6 @@ type User struct {
 }
 
 type LoginData struct {
-	Email    string `json:"email"`
+	Identifier    string `json:"email"`
 	Password string `json:"password"`
 }

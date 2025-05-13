@@ -10,5 +10,6 @@ func AuthRoutes(server *gin.Engine) {
 	{
 		auth.POST("/signup", controllers.Signup)
 		auth.POST("/login", controllers.Login)
+		auth.POST("/verify-email/:activationToken", controllers.ActivateAccount)
 	}
 }

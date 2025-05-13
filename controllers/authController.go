@@ -64,7 +64,7 @@ func Signup(ctx *gin.Context) {
 	emailData := utils.EmailData{
 		Name:            signUpData.Username,
 		Message:         "Thank you for signing up! Click the button below to verify your account.",
-		VerificationURL: "https://benard-kariuki.vercel.app/",
+		VerificationURL: os.Getenv("FRONTEND_URL") + "/auth/verify-email?" + activationToken,
 		LogoURL:         "https://yourdomain.com/logo.png",
 	}
 	err = utils.SendEmail(signUpData.Email, "Account Verification", emailData)
@@ -131,5 +131,21 @@ func Login(ctx *gin.Context) {
 }
 
 func ActivateAccount(ctx *gin.Context) {
+	activationToken := ctx.Param("activationToken")
+	result := initializers.DB.Model(&models.User{}).
+		Where("account_activation_token = ?", activationToken).
+		Updates(map[string]any{"account_activated": true, "account_activation_token": ""})
 
+	if result.Error != nil {
+		log.Println(result.Error)
+		ctx.JSON(500, gin.H{"message": "Internal server error"})
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		ctx.JSON(400, gin.H{"message": "Invalid or expired activation link"})
+		return
+	}
+
+	ctx.JSON(200, gin.H{"message": "account has been activated successfully."})
 }

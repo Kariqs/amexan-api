@@ -30,10 +30,12 @@ func SendEmail(emailTo string, emailSubject string, data EmailData) error {
 		return fmt.Errorf("template execution error: %w", err)
 	}
 
-	message := fmt.Sprintf("Subject: %s\r\n", emailSubject) +
-		"MIME-version: 1.0;\r\n" +
-		"Content-Type: text/html; charset=\"UTF-8\";\r\n\r\n" +
-		body.String()
+	message := fmt.Sprintf(
+		"From: %s\r\nSubject: %s\r\nMIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n%s",
+		os.Getenv("FROM_EMAIL"),
+		emailSubject,
+		body.String(),
+	)
 
 	auth := smtp.PlainAuth(
 		"",

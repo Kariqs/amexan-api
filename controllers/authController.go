@@ -65,7 +65,7 @@ func Signup(ctx *gin.Context) {
 		Name:            signUpData.Username,
 		Message:         "Thank you for signing up! Click the button below to verify your account.",
 		VerificationURL: os.Getenv("FRONTEND_URL") + "/auth/verify-email?" + activationToken,
-		LogoURL:         "https://yourdomain.com/logo.png",
+		LogoURL:         "https://www.amexan.store/images/logo.jpg",
 	}
 	err = utils.SendEmail(signUpData.Email, "Account Verification", emailData)
 	if err != nil {

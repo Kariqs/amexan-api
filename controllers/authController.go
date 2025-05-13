@@ -3,6 +3,7 @@ package controllers
 import (
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -64,7 +65,7 @@ func Signup(ctx *gin.Context) {
 	emailData := utils.EmailData{
 		Name:            signUpData.Username,
 		Message:         "Thank you for signing up! Click the button below to verify your account.",
-		VerificationURL: os.Getenv("FRONTEND_URL") + "/auth/verify-email?" + activationToken,
+		VerificationURL: os.Getenv("FRONTEND_URL") + "/auth/verify-email?token=" + url.QueryEscape(activationToken),
 		LogoURL:         "https://www.amexan.store/images/logo.jpg",
 	}
 	err = utils.SendEmail(signUpData.Email, "Account Verification", emailData)

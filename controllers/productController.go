@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Kariqs/amexan-api/initializers"
 	"github.com/Kariqs/amexan-api/models"
@@ -18,95 +19,143 @@ import (
 	"gorm.io/gorm"
 )
 
+// Common error response helper
+func respondWithError(ctx *gin.Context, statusCode int, message string, err error) {
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	ctx.JSON(statusCode, gin.H{
+		"message": message,
+		"error":   errMsg,
+	})
+}
+
+// Product handlers
 func CreateProduct(ctx *gin.Context) {
 	var product models.Product
-	err := ctx.ShouldBindJSON(&product)
-	if err != nil {
-		fmt.Println(err)
-		log.Fatal("Failed to parse request body")
+	if err := ctx.ShouldBindJSON(&product); err != nil {
+		respondWithError(ctx, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
-	result := initializers.DB.Create(&product)
-	if result.Error != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to create product"})
+
+	if err := initializers.DB.Create(&product).Error; err != nil {
+		respondWithError(ctx, http.StatusInternalServerError, "Failed to create product", err)
 		return
 	}
+
 	ctx.JSON(http.StatusCreated, product)
 }
 
 func CreateProductSpecs(ctx *gin.Context) {
 	var spec models.ProductSpecs
-	err := ctx.ShouldBindJSON(&spec)
+	if err := ctx.ShouldBindJSON(&spec); err != nil {
+		respondWithError(ctx, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+
+	// Validate product exists
+	var product models.Product
+	if err := initializers.DB.First(&product, spec.ProductID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			respondWithError(ctx, http.StatusNotFound, "Product not found", nil)
+		} else {
+			respondWithError(ctx, http.StatusInternalServerError, "Failed to validate product", err)
+		}
+		return
+	}
+
+	if err := initializers.DB.Create(&spec).Error; err != nil {
+		respondWithError(ctx, http.StatusInternalServerError, "Failed to create product specifications", err)
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{"message": "Product specs added successfully"})
+}
+
+// getAWSConfig returns a configured AWS S3 uploader
+func getAWSUploader() (*manager.Uploader, error) {
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request body", "error": err.Error()})
-		return
+		return nil, fmt.Errorf("error loading AWS config: %w", err)
 	}
-	result := initializers.DB.Create(&spec)
-	if result.Error != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"message": "Failed to create product specifications", "error": result.Error.Error()})
-		return
-	}
-	ctx.JSON(http.StatusCreated, gin.H{"message": "Product specs added."})
+
+	client := s3.NewFromConfig(cfg)
+	return manager.NewUploader(client), nil
 }
 
 func UploadProductImages(ctx *gin.Context) {
+	// Get multipart form
 	form, err := ctx.MultipartForm()
 	if err != nil {
-		log.Printf("error reading multipart form: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid form data"})
+		respondWithError(ctx, http.StatusBadRequest, "Invalid form data", err)
 		return
 	}
 
 	files := form.File["images"]
-
 	if len(files) == 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "No files uploaded"})
+		respondWithError(ctx, http.StatusBadRequest, "No files uploaded", nil)
 		return
 	}
 
-	// Get the productId from form field
+	// Get and validate productId
 	productIdStr := ctx.PostForm("productId")
 	if productIdStr == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing productId"})
+		respondWithError(ctx, http.StatusBadRequest, "Missing productId", nil)
 		return
 	}
 
 	productId, err := strconv.Atoi(productIdStr)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid productId"})
+		respondWithError(ctx, http.StatusBadRequest, "Invalid productId", err)
 		return
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO())
+	// Validate product exists
+	var product models.Product
+	if err := initializers.DB.First(&product, productId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			respondWithError(ctx, http.StatusNotFound, "Product not found", nil)
+		} else {
+			respondWithError(ctx, http.StatusInternalServerError, "Failed to validate product", err)
+		}
+		return
+	}
+
+	// Get AWS uploader
+	uploader, err := getAWSUploader()
 	if err != nil {
-		log.Printf("error loading AWS config: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to configure AWS"})
+		respondWithError(ctx, http.StatusInternalServerError, "Failed to configure AWS", err)
 		return
 	}
-
-	client := s3.NewFromConfig(cfg)
-	uploader := manager.NewUploader(client)
 
 	var uploadedUrls []string
+	var failedUploads []string
 
+	// Upload files and save to database
 	for _, file := range files {
 		f, openErr := file.Open()
 		if openErr != nil {
-			log.Printf("error opening file: %v", openErr)
+			log.Printf("Error opening file %s: %v", file.Filename, openErr)
+			failedUploads = append(failedUploads, file.Filename)
 			continue
 		}
-		defer f.Close()
+
+		// Generate a unique filename to prevent overwrites
+		uniqueFilename := fmt.Sprintf("%d-%s-%s", productId, time.Now().Format("20060102150405"), file.Filename)
 
 		result, uploadErr := uploader.Upload(context.TODO(), &s3.PutObjectInput{
 			Bucket:      aws.String("amexan"),
-			Key:         aws.String(file.Filename),
+			Key:         aws.String(uniqueFilename),
 			Body:        f,
 			ACL:         "public-read",
 			ContentType: aws.String(file.Header.Get("Content-Type")),
 		})
+		f.Close() // Close file immediately after use
 
 		if uploadErr != nil {
-			log.Printf("error uploading file: %v", uploadErr)
+			log.Printf("Error uploading file %s: %v", file.Filename, uploadErr)
+			failedUploads = append(failedUploads, file.Filename)
 			continue
 		}
 
@@ -119,42 +168,76 @@ func UploadProductImages(ctx *gin.Context) {
 		}
 
 		if err := initializers.DB.Create(&productImage).Error; err != nil {
-			log.Printf("error saving image to database: %v", err)
-			continue
+			log.Printf("Error saving image to database: %v", err)
+			// We've already uploaded the file, so we'll just log this error
 		}
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "Files uploaded and saved successfully",
+	response := gin.H{
+		"message": "Files processed",
 		"urls":    uploadedUrls,
-	})
+	}
+
+	if len(failedUploads) > 0 {
+		response["failed"] = failedUploads
+	}
+
+	ctx.JSON(http.StatusOK, response)
 }
 
 func GetProducts(ctx *gin.Context) {
 	var products []models.Product
-	result := initializers.DB.Preload("Images").Find(&products)
+
+	// Add pagination
+	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
+	offset := (page - 1) * limit
+
+	query := initializers.DB.Preload("Images")
+
+	// Add search by name if provided
+	if search := ctx.Query("search"); search != "" {
+		query = query.Where("name LIKE ?", "%"+search+"%")
+	}
+
+	// Execute the query with pagination
+	result := query.Limit(limit).Offset(offset).Find(&products)
 	if result.Error != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"message": "unable to fetch products."})
+		respondWithError(ctx, http.StatusInternalServerError, "Unable to fetch products", result.Error)
 		return
 	}
-	ctx.JSON(http.StatusOK, products)
+
+	// Get total count for pagination
+	var count int64
+	initializers.DB.Model(&models.Product{}).Count(&count)
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"products": products,
+		"metadata": gin.H{
+			"total": count,
+			"page":  page,
+			"limit": limit,
+		},
+	})
 }
 
 func GetProduct(ctx *gin.Context) {
 	productId, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(400, gin.H{"message": "product Id has some issues"})
+		respondWithError(ctx, http.StatusBadRequest, "Invalid product ID", err)
 		return
 	}
+
 	var product models.Product
 	result := initializers.DB.Preload("Specifications").Preload("Images").First(&product, productId)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			ctx.JSON(http.StatusNotFound, gin.H{"message": "product not found"})
-			return
+			respondWithError(ctx, http.StatusNotFound, "Product not found", nil)
+		} else {
+			respondWithError(ctx, http.StatusInternalServerError, "Unable to retrieve product", result.Error)
 		}
-		ctx.JSON(400, gin.H{"message": "Unable to retrieve product."})
 		return
 	}
-	ctx.JSON(200, product)
+
+	ctx.JSON(http.StatusOK, product)
 }

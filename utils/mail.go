@@ -6,7 +6,6 @@ import (
 	"html/template"
 	"net/smtp"
 	"os"
-	"path/filepath"
 )
 
 type EmailData struct {
@@ -16,8 +15,7 @@ type EmailData struct {
 	LogoURL         string
 }
 
-func SendEmail(emailTo string, emailSubject string, data EmailData) error {
-	templatePath := filepath.Join("templates", "verify_email.html")
+func SendEmail(emailTo string, emailSubject string, data EmailData, templatePath string) error {
 
 	tmpl, err := template.ParseFiles(templatePath)
 	if err != nil {

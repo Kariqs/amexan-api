@@ -190,7 +190,7 @@ func GetProducts(ctx *gin.Context) {
 
 	// Add pagination
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "10"))
+	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "4"))
 	offset := (page - 1) * limit
 
 	query := initializers.DB.Preload("Images")

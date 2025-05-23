@@ -21,21 +21,23 @@ const (
 	bcryptCost = 10
 
 	// Standard response messages
-	msgInvalidInput          = "invalid input"
-	msgUserAlreadyExists     = "user already exists"
-	msgFailedToHashPassword  = "failed to hash password"
-	msgInvalidCredentials    = "invalid username or password"
-	msgAccountNotActivated   = "Account not activated, check your email to activate email."
-	msgFailedToGenerateToken = "failed to generate token"
-	msgInternalServerError   = "Internal server error"
-	msgInvalidActivationLink = "Invalid or expired activation link"
-	msgActivationSuccess     = "account has been activated successfully."
-	msgResetLinkSent         = "Check your email for a password reset link."
-	msgUserCreated           = "User created successfully. Check your email to activate your account."
-	msgUserNotFound          = "user with this email does not exist"
-	msgResetTokenError       = "There was an error trying to generate password reset link. Try again later."
-	msgUnableToSaveToken     = "unable to save reset token."
-	msgUnableToResetPassword = "unable to reset password"
+	msgInvalidInput           = "invalid input"
+	msgUserAlreadyExists      = "user already exists"
+	msgFailedToHashPassword   = "failed to hash password"
+	msgInvalidCredentials     = "invalid username or password"
+	msgAccountNotActivated    = "Account not activated, check your email to activate email."
+	msgFailedToGenerateToken  = "failed to generate token"
+	msgInternalServerError    = "Internal server error"
+	msgInvalidActivationLink  = "Invalid or expired activation link"
+	msgActivationSuccess      = "account has been activated successfully."
+	msgResetLinkSent          = "Check your email for a password reset link."
+	msgUserCreated            = "User created successfully. Check your email to activate your account."
+	msgUserNotFound           = "user with this email does not exist"
+	msgResetTokenError        = "There was an error trying to generate password reset link. Try again later."
+	msgUnableToSaveToken      = "unable to save reset token."
+	msgUnableToResetPassword  = "unable to reset password"
+	msgFailedToCreateCart     = "failed to create cart"
+	msgFailedToCreateCartItem = "failed to create cart item"
 )
 
 func sendJSONResponse(ctx *gin.Context, status int, data gin.H) {
@@ -159,12 +161,14 @@ func Signup(ctx *gin.Context) {
 	signUpData.AccountActivationToken = activationToken
 	signUpData.AccountActivated = false
 
-	// Create the user in the database
+	// Create the user and their cart in the database
 	if result := initializers.DB.Create(&signUpData); result.Error != nil {
 		log.Println("User creation error:", result.Error)
 		sendErrorResponse(ctx, http.StatusInternalServerError, msgInternalServerError)
 		return
 	}
+
+	createCart(int(signUpData.ID), ctx)
 
 	// Send email to the user
 	if err := sendAccountVerificationEmail(signUpData, activationToken); err != nil {

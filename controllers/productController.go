@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -211,12 +212,36 @@ func GetProducts(ctx *gin.Context) {
 	var count int64
 	initializers.DB.Model(&models.Product{}).Count(&count)
 
+	previousPage := page - 1
+	currentPage := page
+	nextPage := page + 1
+
+	var hasNextPage bool
+	var hasPreviousPage bool
+
+	totalPages := math.Ceil(float64(count) / float64(limit))
+	if currentPage == int(totalPages) {
+		hasNextPage = false
+	} else {
+		hasNextPage = true
+	}
+
+	if previousPage == 0 {
+		hasPreviousPage = false
+	} else {
+		hasPreviousPage = true
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"products": products,
 		"metadata": gin.H{
-			"total": count,
-			"page":  page,
-			"limit": limit,
+			"total":        count,
+			"currentPage":  currentPage,
+			"limit":        limit,
+			"hasPrevPage":  hasPreviousPage,
+			"hasNextPage":  hasNextPage,
+			"previousPage": previousPage,
+			"nextPage":     nextPage,
 		},
 	})
 }

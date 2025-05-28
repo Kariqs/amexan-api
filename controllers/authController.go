@@ -168,8 +168,6 @@ func Signup(ctx *gin.Context) {
 		return
 	}
 
-	createCart(int(signUpData.ID), ctx)
-
 	// Send email to the user
 	if err := sendAccountVerificationEmail(signUpData, activationToken); err != nil {
 		log.Println("Error sending verification email:", err)

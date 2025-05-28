@@ -7,6 +7,13 @@ import (
 )
 
 func SyncDatabase() {
-	DB.AutoMigrate(&models.User{}, &models.Product{}, &models.ProductImage{}, &models.ProductSpecs{}, &models.CartItem{}, models.Cart{})
+	DB.AutoMigrate(
+		&models.User{},
+		&models.Product{},
+		&models.ProductImage{},
+		&models.ProductSpecs{},
+		&models.OrderItem{},
+		&models.Order{},
+	)
 	log.Println("Database synced successfully.")
 }

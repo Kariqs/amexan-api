@@ -28,6 +28,6 @@ func main() {
 	routes.DefaultRoutes(server)
 	routes.AuthRoutes(server)
 	routes.ProductRoutes(server)
-	routes.CartRoutes(server)
+	routes.OrderRoutes(server)
 	server.Run()
 }

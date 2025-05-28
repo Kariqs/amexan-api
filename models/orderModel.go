@@ -4,19 +4,20 @@ import "gorm.io/gorm"
 
 type Order struct {
 	gorm.Model
-	UserID     int
-	FirstName  string
-	LastName   string
-	Email      string
-	Phone      string
-	OrderItems []OrderItem `gorm:"foreignKey:OrderID;constraint:OnDelete:CASCADE"`
+	UserID           int         `json:"userId"`
+	FirstName        string      `json:"firstName"`
+	LastName         string      `json:"lastName"`
+	Email            string      `json:"email"`
+	Phone            string      `json:"phone"`
+	DeliveryLocation string      `json:"deliveryLocation"`
+	OrderItems       []OrderItem `json:"orderItems" gorm:"foreignKey:OrderID;constraint:OnDelete:CASCADE"`
 }
 
 type OrderItem struct {
 	gorm.Model
-	OrderID   int
-	ProductId int
-	Name      string
-	Price     float64
-	Quantity  int
+	OrderID   int     `json:"orderId"`
+	ProductId int     `json:"productId"`
+	Name      string  `json:"name"`
+	Price     float64 `json:"price"`
+	Quantity  int     `json:"quantity"`
 }

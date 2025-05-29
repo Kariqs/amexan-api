@@ -19,11 +19,12 @@ func CreateOrder(ctx *gin.Context) {
 	}
 
 	order := models.Order{
-		UserID:    OrderInfo.UserID,
-		FirstName: OrderInfo.FirstName,
-		LastName:  OrderInfo.LastName,
-		Email:     OrderInfo.Email,
-		Phone:     OrderInfo.Phone,
+		UserID:           OrderInfo.UserID,
+		FirstName:        OrderInfo.FirstName,
+		LastName:         OrderInfo.LastName,
+		Email:            OrderInfo.Email,
+		Phone:            OrderInfo.Phone,
+		DeliveryLocation: OrderInfo.DeliveryLocation,
 	}
 
 	if result := initializers.DB.Create(&order); result.Error != nil {

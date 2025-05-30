@@ -7,4 +7,5 @@ import (
 
 func OrderRoutes(server *gin.Engine) {
 	server.POST("/order", controllers.CreateOrder)
+	server.GET("/order/:userId", controllers.GetOderByCustomerId)
 }

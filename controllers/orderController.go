@@ -3,6 +3,7 @@ package controllers
 import (
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/Kariqs/amexan-api/initializers"
 	"github.com/Kariqs/amexan-api/models"
@@ -25,6 +26,8 @@ func CreateOrder(ctx *gin.Context) {
 		Email:            OrderInfo.Email,
 		Phone:            OrderInfo.Phone,
 		DeliveryLocation: OrderInfo.DeliveryLocation,
+		Total:            OrderInfo.Total,
+		Status:           "Pending",
 	}
 
 	if result := initializers.DB.Create(&order); result.Error != nil {
@@ -48,4 +51,24 @@ func CreateOrder(ctx *gin.Context) {
 	}
 
 	sendJSONResponse(ctx, http.StatusCreated, gin.H{"message": "Order placed successfully."})
+}
+
+func GetOderByCustomerId(ctx *gin.Context) {
+	userId, err := strconv.Atoi(ctx.Param("userId"))
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to parse userId")
+		return
+	}
+
+	var orders []models.Order
+	if result := initializers.DB.Preload("OrderItems").Where("user_id = ?", userId).Find(&orders); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to fetch orders.")
+		return
+	}
+
+	sendJSONResponse(ctx, http.StatusOK, gin.H{
+		"orders": orders,
+	})
 }

@@ -10,6 +10,8 @@ type Order struct {
 	Email            string      `json:"email"`
 	Phone            string      `json:"phone"`
 	DeliveryLocation string      `json:"deliveryLocation"`
+	Total            float64     `json:"total"`
+	Status           string      `json:"status"`
 	OrderItems       []OrderItem `json:"orderItems" gorm:"foreignKey:OrderID;constraint:OnDelete:CASCADE"`
 }
 

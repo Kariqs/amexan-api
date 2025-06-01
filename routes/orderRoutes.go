@@ -8,6 +8,6 @@ import (
 func OrderRoutes(server *gin.Engine) {
 	server.POST("/order", controllers.CreateOrder)
 	server.GET("/order", controllers.GetOrders)
-	server.GET("/orders/:userId", controllers.GetOderByCustomerId)
+	server.GET("/user/:userId/orders", controllers.GetOderByCustomerId)
 	server.GET("/order/:orderId", controllers.GetOderById)
 }

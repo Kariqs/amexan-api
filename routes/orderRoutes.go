@@ -10,4 +10,5 @@ func OrderRoutes(server *gin.Engine) {
 	server.GET("/order", controllers.GetOrders)
 	server.GET("/user/:userId/orders", controllers.GetOderByCustomerId)
 	server.GET("/order/:orderId", controllers.GetOderById)
+	server.PATCH("/order/:orderId", controllers.UpdateOrderStatus)
 }

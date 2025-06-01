@@ -153,3 +153,31 @@ func GetOderById(ctx *gin.Context) {
 		"order": order,
 	})
 }
+
+func UpdateOrderStatus(ctx *gin.Context) {
+	var orderStatusData struct {
+		Status string `json:"status"`
+	}
+	err := ctx.ShouldBindJSON(&orderStatusData)
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to parse request body")
+		return
+	}
+
+	orderId, err := strconv.Atoi(ctx.Param("orderId"))
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to parse orderId")
+		return
+	}
+	if result := initializers.DB.Model(&models.Order{}).Where("ID = ?", orderId).Update("status", orderStatusData.Status); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to update order status")
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "Order status updated successfully.",
+	})
+}

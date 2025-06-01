@@ -19,7 +19,7 @@ func main() {
 	server := gin.Default()
 	server.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:4200", "https://www.amexan.store"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,

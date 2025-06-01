@@ -57,57 +57,48 @@ func CreateOrder(ctx *gin.Context) {
 func GetOrders(ctx *gin.Context) {
 	var orders []models.Order
 
-	// Add pagination
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", "15"))
 	offset := (page - 1) * limit
 
+	sortOrder := ctx.DefaultQuery("sort", "desc")
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
+	}
+
 	query := initializers.DB.Preload("OrderItems")
 
-	// Add search by name if provided
 	if search := ctx.Query("search"); search != "" {
 		query = query.Where("ID LIKE ?", "%"+search+"%")
 	}
 
-	// Execute the query with pagination
+	query = query.Order("created_at " + sortOrder)
+
 	result := query.Limit(limit).Offset(offset).Find(&orders)
 	if result.Error != nil {
-		respondWithError(ctx, http.StatusInternalServerError, "Unable to fetch products", result.Error)
+		respondWithError(ctx, http.StatusInternalServerError, "Unable to fetch orders", result.Error)
 		return
 	}
 
-	// Get total count for pagination
 	var count int64
-	initializers.DB.Model(&models.Product{}).Count(&count)
+	countQuery := initializers.DB.Model(&models.Order{})
+	if search := ctx.Query("search"); search != "" {
+		countQuery = countQuery.Where("id LIKE ?", "%"+search+"%")
+	}
+	countQuery.Count(&count)
 
 	previousPage := page - 1
-	currentPage := page
 	nextPage := page + 1
-
-	var hasNextPage bool
-	var hasPreviousPage bool
-
 	totalPages := math.Ceil(float64(count) / float64(limit))
-	if currentPage == int(totalPages) {
-		hasNextPage = false
-	} else {
-		hasNextPage = true
-	}
-
-	if previousPage == 0 {
-		hasPreviousPage = false
-	} else {
-		hasPreviousPage = true
-	}
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"orders": orders,
 		"metadata": gin.H{
 			"total":        count,
-			"currentPage":  currentPage,
+			"currentPage":  page,
 			"limit":        limit,
-			"hasPrevPage":  hasPreviousPage,
-			"hasNextPage":  hasNextPage,
+			"hasPrevPage":  previousPage > 0,
+			"hasNextPage":  int(totalPages) > page,
 			"previousPage": previousPage,
 			"nextPage":     nextPage,
 		},
@@ -122,8 +113,19 @@ func GetOderByCustomerId(ctx *gin.Context) {
 		return
 	}
 
+	sortOrder := ctx.DefaultQuery("sort", "desc")
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
+	}
+
+	query := initializers.DB.Preload("OrderItems").Where("user_id = ?", userId)
+
+	if search := ctx.Query("search"); search != "" {
+		query = query.Where("id LIKE ?", "%"+search+"%")
+	}
+
 	var orders []models.Order
-	if result := initializers.DB.Preload("OrderItems").Where("user_id = ?", userId).Find(&orders); result.Error != nil {
+	if result := query.Order("created_at " + sortOrder).Find(&orders); result.Error != nil {
 		log.Println(result.Error)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to fetch orders.")
 		return
@@ -143,7 +145,7 @@ func GetOderById(ctx *gin.Context) {
 	}
 
 	var order models.Order
-	if result := initializers.DB.Preload("OrderItems").Where("ID = ?", orderId).Find(&order); result.Error != nil {
+	if result := initializers.DB.Preload("OrderItems").Where("id = ?", orderId).Find(&order); result.Error != nil {
 		log.Println(result.Error)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to fetch order.")
 		return
@@ -171,7 +173,7 @@ func UpdateOrderStatus(ctx *gin.Context) {
 		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to parse orderId")
 		return
 	}
-	if result := initializers.DB.Model(&models.Order{}).Where("ID = ?", orderId).Update("status", orderStatusData.Status); result.Error != nil {
+	if result := initializers.DB.Model(&models.Order{}).Where("id = ?", orderId).Update("status", orderStatusData.Status); result.Error != nil {
 		log.Println(result.Error)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to update order status")
 		return

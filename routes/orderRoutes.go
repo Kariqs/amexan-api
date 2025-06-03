@@ -2,13 +2,15 @@ package routes
 
 import (
 	"github.com/Kariqs/amexan-api/controllers"
+	"github.com/Kariqs/amexan-api/middlewares"
 	"github.com/gin-gonic/gin"
 )
 
 func OrderRoutes(server *gin.Engine) {
-	server.POST("/order", controllers.CreateOrder)
-	server.GET("/order", controllers.GetOrders)
-	server.GET("/user/:userId/orders", controllers.GetOderByCustomerId)
-	server.GET("/order/:orderId", controllers.GetOderById)
-	server.PATCH("/order/:orderId", controllers.UpdateOrderStatus)
+	server.POST("/order", middlewares.RequireAuth(), controllers.CreateOrder)
+	server.GET("/order", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.GetOrders)
+	server.GET("/user/:userId/orders", middlewares.RequireAuth(), controllers.GetOderByCustomerId)
+	server.GET("/order/:orderId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.GetOderById)
+	server.PATCH("/order/:orderId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.UpdateOrderStatus)
+	server.DELETE("/order/:orderId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.DeleteOrder)
 }

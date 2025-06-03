@@ -183,3 +183,20 @@ func UpdateOrderStatus(ctx *gin.Context) {
 		"message": "Order status updated successfully.",
 	})
 }
+
+func DeleteOrder(ctx *gin.Context) {
+	orderId, err := strconv.Atoi(ctx.Param("orderId"))
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to parse order id.")
+		return
+	}
+
+	if result := initializers.DB.Delete(&models.Order{}, orderId); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to delete order.")
+		return
+	}
+
+	sendJSONResponse(ctx, http.StatusOK, gin.H{"message": "Order deleted successfully."})
+}

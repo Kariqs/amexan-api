@@ -206,7 +206,7 @@ func GetUndeliveredOrders(ctx *gin.Context) {
 
 	result := initializers.DB.
 		Model(&models.Order{}).
-		Where("status != ?", "Complete").
+		Where("status != ?", "Completed").
 		Count(&count)
 
 	if result.Error != nil {

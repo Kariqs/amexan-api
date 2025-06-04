@@ -13,4 +13,5 @@ func OrderRoutes(server *gin.Engine) {
 	server.GET("/order/:orderId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.GetOderById)
 	server.PATCH("/order/:orderId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.UpdateOrderStatus)
 	server.DELETE("/order/:orderId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.DeleteOrder)
+	server.GET("/orders/undelivered", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.GetUndeliveredOrders)
 }

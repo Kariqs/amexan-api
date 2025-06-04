@@ -200,3 +200,19 @@ func DeleteOrder(ctx *gin.Context) {
 
 	sendJSONResponse(ctx, http.StatusOK, gin.H{"message": "Order deleted successfully."})
 }
+
+func GetUndeliveredOrders(ctx *gin.Context) {
+	var count int64
+
+	result := initializers.DB.
+		Model(&models.Order{}).
+		Where("status != ?", "Complete").
+		Count(&count)
+
+	if result.Error != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count undelivered orders"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"undeliveredOrderCount": count})
+}

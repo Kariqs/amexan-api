@@ -348,8 +348,19 @@ func DeleteProduct(ctx *gin.Context) {
 			log.Printf("Failed to delete objects from bucket %s: %v\n", bucket, err)
 		}
 	}
+	if result := initializers.DB.Where("product_id = ?", productId).Delete(&models.ProductImage{}); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, 400, "Unable to delete product images.")
+		return
+	}
 
-	if result := initializers.DB.Select("Images","Specifications").Delete(&models.Product{}, productId); result.Error != nil {
+	if result := initializers.DB.Where("product_id = ?", productId).Delete(&models.ProductSpecs{}); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, 400, "Unable to delete product specifications.")
+		return
+	}
+
+	if result := initializers.DB.Delete(&models.Product{}, productId); result.Error != nil {
 		log.Println(result.Error)
 		sendErrorResponse(ctx, 400, "Unable to delete product.")
 		return
@@ -357,5 +368,4 @@ func DeleteProduct(ctx *gin.Context) {
 	sendJSONResponse(ctx, 200, gin.H{
 		"message": "Product was deleted successfully.",
 	})
-
 }

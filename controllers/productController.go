@@ -349,7 +349,7 @@ func DeleteProduct(ctx *gin.Context) {
 		}
 	}
 
-	if result := initializers.DB.Delete(&models.Product{}, productId); result.Error != nil {
+	if result := initializers.DB.Select("Images","Specifications").Delete(&models.Product{}, productId); result.Error != nil {
 		log.Println(result.Error)
 		sendErrorResponse(ctx, 400, "Unable to delete product.")
 		return

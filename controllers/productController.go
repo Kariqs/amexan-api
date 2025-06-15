@@ -7,7 +7,9 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Kariqs/amexan-api/initializers"
@@ -16,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -265,4 +268,94 @@ func GetProduct(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, product)
+}
+
+func parseS3URL(s3url string) (bucket, key string, err error) {
+	parsedURL, err := url.Parse(s3url)
+	if err != nil {
+		return "", "", err
+	}
+
+	hostParts := strings.Split(parsedURL.Host, ".")
+	if len(hostParts) >= 3 && hostParts[1] == "s3" {
+		bucket = hostParts[0]
+		key = strings.TrimPrefix(parsedURL.Path, "/")
+	} else {
+		pathParts := strings.SplitN(strings.TrimPrefix(parsedURL.Path, "/"), "/", 2)
+		if len(pathParts) != 2 {
+			return "", "", fmt.Errorf("invalid path in URL: %s", parsedURL.Path)
+		}
+		bucket = pathParts[0]
+		key = pathParts[1]
+	}
+	return
+}
+
+func DeleteProduct(ctx *gin.Context) {
+	productId, err := strconv.Atoi(ctx.Param("productId"))
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, 400, "Unable to parse productId")
+		return
+	}
+
+	var productImages []models.ProductImage
+	if result := initializers.DB.Where("product_id = ?", productId).Find(&productImages); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, 400, "Could not fetch product images.")
+	}
+
+	// Load AWS config and create S3 client
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, 500, "Failed to load AWS config")
+		return
+	}
+	s3Client := s3.NewFromConfig(cfg)
+
+	// Group by bucket and collect keys
+	bucketToKeys := map[string][]types.ObjectIdentifier{}
+
+	for _, img := range productImages {
+		if img.Url == "" {
+			continue
+		}
+
+		bucket, key, err := parseS3URL(img.Url)
+		if err != nil {
+			log.Printf("Failed to parse S3 URL %s: %v\n", img.Url, err)
+			continue
+		}
+		bucketToKeys[bucket] = append(bucketToKeys[bucket], types.ObjectIdentifier{
+			Key: aws.String(key),
+		})
+	}
+
+	// Delete all keys grouped by bucket
+	for bucket, objects := range bucketToKeys {
+		if len(objects) == 0 {
+			continue
+		}
+		_, err := s3Client.DeleteObjects(context.TODO(), &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &types.Delete{
+				Objects: objects,
+				Quiet:   aws.Bool(true),
+			},
+		})
+		if err != nil {
+			log.Printf("Failed to delete objects from bucket %s: %v\n", bucket, err)
+		}
+	}
+
+	if result := initializers.DB.Select("Images","Specifications").Delete(&models.Product{}, productId); result.Error != nil {
+		log.Println(result.Error)
+		sendErrorResponse(ctx, 400, "Unable to delete product.")
+		return
+	}
+	sendJSONResponse(ctx, 200, gin.H{
+		"message": "Product was deleted successfully.",
+	})
+
 }

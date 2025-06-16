@@ -24,17 +24,36 @@ func GetPesapalAccessToken() (string, error) {
 		Post("https://pay.pesapal.com/v3/api/Auth/RequestToken")
 
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+
+	// Check HTTP status code
+	if resp.StatusCode() != 200 {
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	// Check if response body is empty
+	if len(resp.Body()) == 0 {
+		return "", fmt.Errorf("empty response body")
 	}
 
 	var data map[string]any
-	json.Unmarshal(resp.Body(), &data)
+	if err := json.Unmarshal(resp.Body(), &data); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w, body: %s", err, string(resp.Body()))
+	}
 
-	if token, ok := data["token"].(string); ok {
+	// Check if the response contains an error
+	if errorMsg, exists := data["error"]; exists {
+		return "", fmt.Errorf("API error: %v", errorMsg)
+	}
+
+	// Check if token exists and is a string
+	if token, ok := data["token"].(string); ok && token != "" {
 		return token, nil
 	}
 
-	return "", fmt.Errorf("could not parse token")
+	// Log the actual response structure for debugging
+	return "", fmt.Errorf("token not found in response or is empty. Response: %+v", data)
 }
 
 func CreateOrder(ctx *gin.Context) {

@@ -4,15 +4,17 @@ import "gorm.io/gorm"
 
 type Order struct {
 	gorm.Model
-	UserID           int         `json:"userId"`
-	FirstName        string      `json:"firstName"`
-	LastName         string      `json:"lastName"`
-	Email            string      `json:"email"`
-	Phone            string      `json:"phone"`
-	DeliveryLocation string      `json:"deliveryLocation"`
-	Total            float64     `json:"total"`
-	Status           string      `json:"status"`
-	OrderItems       []OrderItem `json:"orderItems" gorm:"foreignKey:OrderID;constraint:OnDelete:CASCADE"`
+	UserID            int         `json:"userId"`
+	FirstName         string      `json:"firstName"`
+	LastName          string      `json:"lastName"`
+	Email             string      `json:"email"`
+	Phone             string      `json:"phone"`
+	DeliveryLocation  string      `json:"deliveryLocation"`
+	Total             float64     `json:"total"`
+	Status            string      `json:"status"`
+	PesapalTrackingId string      `json:"pesapalTrackingId"`
+	PaymentStatus     string      `json:"paymentStatus"`
+	OrderItems        []OrderItem `json:"orderItems" gorm:"foreignKey:OrderID;constraint:OnDelete:CASCADE"`
 }
 
 type OrderItem struct {

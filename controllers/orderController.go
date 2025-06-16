@@ -1,15 +1,41 @@
 package controllers
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/Kariqs/amexan-api/initializers"
 	"github.com/Kariqs/amexan-api/models"
 	"github.com/gin-gonic/gin"
+	"github.com/go-resty/resty/v2"
 )
+
+func GetPesapalAccessToken() (string, error) {
+	client := resty.New()
+	resp, err := client.R().
+		SetBasicAuth(os.Getenv("PESAPAL_CONSUMER_KEY"), os.Getenv("PESAPAL_CONSUMER_SECRET")).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Accept", "application/json").
+		Post("https://pay.pesapal.com/v3/api/Auth/RequestToken")
+
+	if err != nil {
+		return "", err
+	}
+
+	var data map[string]any
+	json.Unmarshal(resp.Body(), &data)
+
+	if token, ok := data["token"].(string); ok {
+		return token, nil
+	}
+
+	return "", fmt.Errorf("could not parse token")
+}
 
 func CreateOrder(ctx *gin.Context) {
 	var OrderInfo models.Order
@@ -51,7 +77,105 @@ func CreateOrder(ctx *gin.Context) {
 		}
 	}
 
-	sendJSONResponse(ctx, http.StatusCreated, gin.H{"message": "Order placed successfully."})
+	//Get pesapal access token
+	token, err := GetPesapalAccessToken()
+	if err != nil {
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to authenticate with Pesapal")
+		return
+	}
+
+	// 🧾 Build Pesapal Order Payload
+	pesapalOrder := map[string]interface{}{
+		"id":              fmt.Sprintf("ORDER-%d", order.ID),
+		"currency":        "KES",
+		"amount":          1, //should be order.Total
+		"description":     "Payment for order #" + fmt.Sprint(order.ID),
+		"callback_url":    "https://amexan.store/",
+		"notification_id": os.Getenv("PESAPAL_NOTIFICATION_ID"),
+		"billing_address": map[string]any{
+			"email_address": order.Email,
+			"phone_number":  order.Phone,
+			"first_name":    order.FirstName,
+			"last_name":     order.LastName,
+			"city":          order.DeliveryLocation,
+		},
+	}
+
+	// 📤 Submit Order to Pesapal
+	client := resty.New()
+	resp, err := client.R().
+		SetHeader("Authorization", "Bearer "+token).
+		SetHeader("Content-Type", "application/json").
+		SetBody(pesapalOrder).
+		Post("https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest")
+
+	if err != nil {
+		log.Println("Pesapal error:", err)
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to submit order to Pesapal")
+		return
+	}
+
+	var pesapalResp map[string]any
+	json.Unmarshal(resp.Body(), &pesapalResp)
+
+	redirectURL, ok := pesapalResp["redirect_url"].(string)
+	if !ok {
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to parse Pesapal response")
+		return
+	}
+
+	sendJSONResponse(ctx, http.StatusOK, gin.H{
+		"message":      "Order created. Redirect user to payment.",
+		"redirect_url": redirectURL,
+		"order_id":     order.ID,
+	})
+}
+
+func HandlePesapalIPN(ctx *gin.Context) {
+	orderTrackingId := ctx.Query("orderTrackingId")
+	if orderTrackingId == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing orderTrackingId"})
+		return
+	}
+
+	token, err := GetPesapalAccessToken()
+	if err != nil {
+		log.Println("Token error:", err)
+		ctx.Status(http.StatusInternalServerError)
+		return
+	}
+
+	client := resty.New()
+	resp, err := client.R().
+		SetHeader("Authorization", "Bearer "+token).
+		Get("https://pay.pesapal.com/pesapalv3/api/Transactions/GetTransactionStatus?orderTrackingId=" + orderTrackingId)
+
+	if err != nil {
+		log.Println("Pesapal status error:", err)
+		ctx.Status(http.StatusInternalServerError)
+		return
+	}
+
+	var result map[string]interface{}
+	json.Unmarshal(resp.Body(), &result)
+
+	status, ok := result["payment_status"].(string)
+	if !ok {
+		log.Println("Invalid status from Pesapal:", resp.String())
+		ctx.Status(http.StatusInternalServerError)
+		return
+	}
+
+	// Update payment status
+	if err := initializers.DB.Model(&models.Order{}).
+		Where("pesapal_tracking_id = ?", orderTrackingId).
+		Update("payment_status", status).Error; err != nil {
+		log.Println("DB update error:", err)
+		ctx.Status(http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Status(http.StatusOK)
 }
 
 func GetOrders(ctx *gin.Context) {

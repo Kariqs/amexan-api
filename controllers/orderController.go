@@ -80,6 +80,7 @@ func CreateOrder(ctx *gin.Context) {
 	//Get pesapal access token
 	token, err := GetPesapalAccessToken()
 	if err != nil {
+		log.Println(err)
 		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to authenticate with Pesapal")
 		return
 	}

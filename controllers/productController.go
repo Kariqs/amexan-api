@@ -291,6 +291,37 @@ func parseS3URL(s3url string) (bucket, key string, err error) {
 	return
 }
 
+func UpdateProduct(ctx *gin.Context) {
+	productId, err := strconv.Atoi(ctx.Param("productId"))
+	if err != nil {
+		log.Println(err)
+		sendErrorResponse(ctx, 400, "Unable to parse peoductId")
+		return
+	}
+
+	var updateData models.Product
+	if err := ctx.ShouldBindJSON(&updateData); err != nil {
+		log.Println("Invalid JSON body:", err)
+		sendErrorResponse(ctx, 400, "Invalid request body")
+		return
+	}
+
+	updateData.ID = uint(productId)
+
+	if err := initializers.DB.Model(&models.Product{}).
+		Where("id = ?", productId).
+		Updates(updateData).Error; err != nil {
+		log.Println("Failed to update product:", err)
+		sendErrorResponse(ctx, 500, "Failed to update product")
+		return
+	}
+
+	sendJSONResponse(ctx, 200, gin.H{
+		"message": "Product updated successfully",
+		"product": updateData,
+	})
+}
+
 func DeleteProduct(ctx *gin.Context) {
 	productId, err := strconv.Atoi(ctx.Param("productId"))
 	if err != nil {

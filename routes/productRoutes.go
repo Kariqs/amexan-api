@@ -12,5 +12,6 @@ func ProductRoutes(server *gin.Engine) {
 	server.POST("/product-images", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.UploadProductImages)
 	server.GET("/product", controllers.GetProducts)
 	server.GET("/product/:id", controllers.GetProduct)
-	server.DELETE("/product/:productId", controllers.DeleteProduct)
+	server.PUT("/product/:productId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.UpdateProduct)
+	server.DELETE("/product/:productId", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.DeleteProduct)
 }

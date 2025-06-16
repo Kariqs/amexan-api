@@ -16,11 +16,28 @@ import (
 )
 
 func GetPesapalAccessToken() (string, error) {
+	// Validate environment variables first
+	consumerKey := os.Getenv("PESAPAL_CONSUMER_KEY")
+	consumerSecret := os.Getenv("PESAPAL_CONSUMER_SECRET")
+	
+	if consumerKey == "" {
+		return "", fmt.Errorf("PESAPAL_CONSUMER_KEY environment variable is not set")
+	}
+	if consumerSecret == "" {
+		return "", fmt.Errorf("PESAPAL_CONSUMER_SECRET environment variable is not set")
+	}
+
+	// Prepare request body as per Pesapal documentation
+	requestBody := map[string]string{
+		"consumer_key":    consumerKey,
+		"consumer_secret": consumerSecret,
+	}
+
 	client := resty.New()
 	resp, err := client.R().
-		SetBasicAuth(os.Getenv("PESAPAL_CONSUMER_KEY"), os.Getenv("PESAPAL_CONSUMER_SECRET")).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Accept", "application/json").
+		SetBody(requestBody).
 		Post("https://pay.pesapal.com/v3/api/Auth/RequestToken")
 
 	if err != nil {
@@ -42,12 +59,20 @@ func GetPesapalAccessToken() (string, error) {
 		return "", fmt.Errorf("failed to unmarshal response: %w, body: %s", err, string(resp.Body()))
 	}
 
-	// Check if the response contains an error
-	if errorMsg, exists := data["error"]; exists {
-		return "", fmt.Errorf("API error: %v", errorMsg)
+	// Check if the response contains an error (according to Pesapal format)
+	if errorField := data["error"]; errorField != nil {
+		return "", fmt.Errorf("API error: %v", errorField)
 	}
 
-	// Check if token exists and is a string
+	// Check response status
+	if status, exists := data["status"]; exists {
+		if statusStr, ok := status.(string); ok && statusStr != "200" {
+			message := data["message"]
+			return "", fmt.Errorf("API returned status %s: %v", statusStr, message)
+		}
+	}
+
+	// Extract token according to Pesapal response format
 	if token, ok := data["token"].(string); ok && token != "" {
 		return token, nil
 	}

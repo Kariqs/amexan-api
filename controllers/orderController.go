@@ -16,18 +16,13 @@ import (
 )
 
 func GetPesapalAccessToken() (string, error) {
-	// Validate environment variables first
 	consumerKey := os.Getenv("PESAPAL_CONSUMER_KEY")
 	consumerSecret := os.Getenv("PESAPAL_CONSUMER_SECRET")
-	
-	if consumerKey == "" {
-		return "", fmt.Errorf("PESAPAL_CONSUMER_KEY environment variable is not set")
-	}
-	if consumerSecret == "" {
-		return "", fmt.Errorf("PESAPAL_CONSUMER_SECRET environment variable is not set")
+
+	if consumerKey == "" || consumerSecret == "" {
+		return "", fmt.Errorf("pesapal consumer credentials are not set")
 	}
 
-	// Prepare request body as per Pesapal documentation
 	requestBody := map[string]string{
 		"consumer_key":    consumerKey,
 		"consumer_secret": consumerSecret,
@@ -41,50 +36,29 @@ func GetPesapalAccessToken() (string, error) {
 		Post("https://pay.pesapal.com/v3/api/Auth/RequestToken")
 
 	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
+		return "", err
 	}
 
-	// Check HTTP status code
 	if resp.StatusCode() != 200 {
-		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
+		return "", fmt.Errorf("pesapal token request failed with status %d: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
-	// Check if response body is empty
-	if len(resp.Body()) == 0 {
-		return "", fmt.Errorf("empty response body")
+	var response map[string]interface{}
+	if err := json.Unmarshal(resp.Body(), &response); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %w", err)
 	}
 
-	var data map[string]any
-	if err := json.Unmarshal(resp.Body(), &data); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w, body: %s", err, string(resp.Body()))
+	token, ok := response["token"].(string)
+	if !ok || token == "" {
+		return "", fmt.Errorf("token not found in response: %v", response)
 	}
 
-	// Check if the response contains an error (according to Pesapal format)
-	if errorField := data["error"]; errorField != nil {
-		return "", fmt.Errorf("API error: %v", errorField)
-	}
-
-	// Check response status
-	if status, exists := data["status"]; exists {
-		if statusStr, ok := status.(string); ok && statusStr != "200" {
-			message := data["message"]
-			return "", fmt.Errorf("API returned status %s: %v", statusStr, message)
-		}
-	}
-
-	// Extract token according to Pesapal response format
-	if token, ok := data["token"].(string); ok && token != "" {
-		return token, nil
-	}
-
-	// Log the actual response structure for debugging
-	return "", fmt.Errorf("token not found in response or is empty. Response: %+v", data)
+	return token, nil
 }
 
 func CreateOrder(ctx *gin.Context) {
 	var OrderInfo models.Order
-	err := ctx.ShouldBindJSON(&OrderInfo)
-	if err != nil {
+	if err := ctx.ShouldBindJSON(&OrderInfo); err != nil {
 		log.Println(err)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Error parsing request body")
 		return
@@ -101,27 +75,19 @@ func CreateOrder(ctx *gin.Context) {
 		Status:           "Pending",
 	}
 
-	if result := initializers.DB.Create(&order); result.Error != nil {
-		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to  create order")
+	if err := initializers.DB.Create(&order).Error; err != nil {
+		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order")
 		return
 	}
 
 	for _, item := range OrderInfo.OrderItems {
-		orderItem := models.OrderItem{
-			OrderID:   int(order.ID),
-			ProductId: item.ProductId,
-			Name:      item.Name,
-			Price:     item.Price,
-			Quantity:  item.Quantity,
-		}
-
-		if result := initializers.DB.Create(&orderItem); result.Error != nil {
+		item.OrderID = int(order.ID)
+		if err := initializers.DB.Create(&item).Error; err != nil {
 			sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order items")
 			return
 		}
 	}
 
-	//Get pesapal access token
 	token, err := GetPesapalAccessToken()
 	if err != nil {
 		log.Println(err)
@@ -129,14 +95,15 @@ func CreateOrder(ctx *gin.Context) {
 		return
 	}
 
-	// 🧾 Build Pesapal Order Payload
+	merchantRef := fmt.Sprintf("ORDER-%d", order.ID)
+
 	pesapalOrder := map[string]interface{}{
-		"id":              fmt.Sprintf("ORDER-%d", order.ID),
-		"currency":        "KES",
-		"amount":          1, //should be order.Total
-		"description":     "Payment for order #" + fmt.Sprint(order.ID),
-		"callback_url":    "https://amexan.store/",
-		"notification_id": os.Getenv("PESAPAL_NOTIFICATION_ID"),
+		"merchant_reference": merchantRef,
+		"currency":           "KES",
+		"amount":             1, //should be order.Total
+		"description":        "Payment for order #" + fmt.Sprint(order.ID),
+		"callback_url":       "https://amexan.store/payment-status",
+		"notification_id":    os.Getenv("PESAPAL_NOTIFICATION_ID"),
 		"billing_address": map[string]any{
 			"email_address": order.Email,
 			"phone_number":  order.Phone,
@@ -146,9 +113,7 @@ func CreateOrder(ctx *gin.Context) {
 		},
 	}
 
-	// 📤 Submit Order to Pesapal
-	client := resty.New()
-	resp, err := client.R().
+	resp, err := resty.New().R().
 		SetHeader("Authorization", "Bearer "+token).
 		SetHeader("Content-Type", "application/json").
 		SetBody(pesapalOrder).
@@ -160,14 +125,20 @@ func CreateOrder(ctx *gin.Context) {
 		return
 	}
 
-	var pesapalResp map[string]any
+	var pesapalResp map[string]interface{}
 	json.Unmarshal(resp.Body(), &pesapalResp)
 
 	redirectURL, ok := pesapalResp["redirect_url"].(string)
-	if !ok {
+	orderTrackingID, ok2 := pesapalResp["order_tracking_id"].(string)
+	if !ok || !ok2 {
+		log.Printf("Invalid Pesapal response: %s", resp.Body())
 		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to parse Pesapal response")
 		return
 	}
+
+	order.PesapalTrackingId = orderTrackingID
+	order.PaymentStatus = "PENDING"
+	initializers.DB.Save(&order)
 
 	sendJSONResponse(ctx, http.StatusOK, gin.H{
 		"message":      "Order created. Redirect user to payment.",

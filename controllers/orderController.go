@@ -95,14 +95,13 @@ func CreateOrder(ctx *gin.Context) {
 		return
 	}
 
-	merchantRef := fmt.Sprintf("ORDER-%d", order.ID)
-
-	pesapalOrder := map[string]interface{}{
-		"merchant_reference": merchantRef,
+	pesapalOrder := map[string]any{
+		"id":                 fmt.Sprintf("ORDER-%d", order.ID),
+		"merchant_reference": fmt.Sprintf("ORDER-%d", order.ID),
 		"currency":           "KES",
-		"amount":             1, //should be order.Total
+		"amount":             1, //order.Total
 		"description":        "Payment for order #" + fmt.Sprint(order.ID),
-		"callback_url":       "https://amexan.store/payment-status",
+		"callback_url":       "https://amexan.store/",
 		"notification_id":    os.Getenv("PESAPAL_NOTIFICATION_ID"),
 		"billing_address": map[string]any{
 			"email_address": order.Email,

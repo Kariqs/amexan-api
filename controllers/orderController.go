@@ -59,10 +59,18 @@ func GetPesapalAccessToken() (string, error) {
 func CreateOrder(ctx *gin.Context) {
 	var OrderInfo models.Order
 	if err := ctx.ShouldBindJSON(&OrderInfo); err != nil {
-		log.Println(err)
+		log.Printf("❌ JSON binding error: %v", err)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Error parsing request body")
 		return
 	}
+
+	// Start database transaction
+	tx := initializers.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
 	order := models.Order{
 		UserID:           OrderInfo.UserID,
@@ -73,76 +81,155 @@ func CreateOrder(ctx *gin.Context) {
 		DeliveryLocation: OrderInfo.DeliveryLocation,
 		Total:            OrderInfo.Total,
 		Status:           "Pending",
+		PaymentStatus:    "PENDING", // Initialize payment status
 	}
 
-	if err := initializers.DB.Create(&order).Error; err != nil {
+	if err := tx.Create(&order).Error; err != nil {
+		tx.Rollback()
+		log.Printf("❌ Failed to create order: %v", err)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order")
 		return
 	}
 
+	// Create order items
 	for _, item := range OrderInfo.OrderItems {
 		item.OrderID = int(order.ID)
-		if err := initializers.DB.Create(&item).Error; err != nil {
+		if err := tx.Create(&item).Error; err != nil {
+			tx.Rollback()
+			log.Printf("❌ Failed to create order item: %v", err)
 			sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order items")
 			return
 		}
 	}
 
+	// Commit the transaction before calling Pesapal
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("❌ Failed to commit transaction: %v", err)
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to save order")
+		return
+	}
+
+	// Get Pesapal token
 	token, err := GetPesapalAccessToken()
 	if err != nil {
-		log.Println(err)
+		log.Printf("❌ Token error: %v", err)
 		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to authenticate with Pesapal")
 		return
 	}
 
+	// Validate required environment variables
+	notificationID := os.Getenv("PESAPAL_NOTIFICATION_ID")
+	if notificationID == "" {
+		log.Println("❌ PESAPAL_NOTIFICATION_ID environment variable not set")
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Payment configuration error")
+		return
+	}
+
+	// Create Pesapal order payload
 	pesapalOrder := map[string]any{
 		"id":                 fmt.Sprintf("ORDER-%d", order.ID),
-		"merchant_reference": fmt.Sprintf("ORDER-%d", order.ID),
 		"currency":           "KES",
-		"amount":             1, //order.Total
+		"amount":             order.Total, // ✅ Use actual amount, not hardcoded 1
 		"description":        "Payment for order #" + fmt.Sprint(order.ID),
-		"callback_url":       "https://amexan.store/",
-		"notification_id":    os.Getenv("PESAPAL_NOTIFICATION_ID"),
+		"callback_url":       "https://amexan.store/payment/callback", // ✅ Use specific callback URL
+		"notification_id":    notificationID,
 		"billing_address": map[string]any{
 			"email_address": order.Email,
 			"phone_number":  order.Phone,
+			"country_code":  "KE", // ✅ Add country code
 			"first_name":    order.FirstName,
 			"last_name":     order.LastName,
 			"city":          order.DeliveryLocation,
+			"line_1":        order.DeliveryLocation, // ✅ Add address line
 		},
 	}
 
-	resp, err := resty.New().R().
+	log.Printf("📤 Submitting order to Pesapal: %+v", pesapalOrder)
+
+	// Submit to Pesapal
+	client := resty.New().SetTimeout(30 * time.Second) // ✅ Set timeout
+	resp, err := client.R().
 		SetHeader("Authorization", "Bearer "+token).
+		SetHeader("Accept", "application/json").
 		SetHeader("Content-Type", "application/json").
 		SetBody(pesapalOrder).
 		Post("https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest")
 
 	if err != nil {
-		log.Println("Pesapal error:", err)
+		log.Printf("❌ Pesapal request error: %v", err)
 		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to submit order to Pesapal")
 		return
 	}
 
-	var pesapalResp map[string]interface{}
-	json.Unmarshal(resp.Body(), &pesapalResp)
-
-	redirectURL, ok := pesapalResp["redirect_url"].(string)
-	orderTrackingID, ok2 := pesapalResp["order_tracking_id"].(string)
-	if !ok || !ok2 {
-		log.Printf("Invalid Pesapal response: %s", resp.Body())
-		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to parse Pesapal response")
+	// ✅ Check HTTP status code
+	if resp.StatusCode() != 200 {
+		log.Printf("❌ Pesapal returned status %d: %s", resp.StatusCode(), string(resp.Body()))
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Payment gateway error")
 		return
 	}
 
-	order.PesapalTrackingId = orderTrackingID
-	order.PaymentStatus = "PENDING"
-	initializers.DB.Save(&order)
+	// ✅ Log the full response for debugging
+	log.Printf("📋 Pesapal Response Status: %d", resp.StatusCode())
+	log.Printf("📋 Pesapal Response Body: %s", string(resp.Body()))
+
+	var pesapalResp map[string]interface{}
+	if err := json.Unmarshal(resp.Body(), &pesapalResp); err != nil {
+		log.Printf("❌ JSON unmarshal error: %v", err)
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Invalid response from payment gateway")
+		return
+	}
+
+	// ✅ Check for errors in Pesapal response
+	if errorObj, exists := pesapalResp["error"]; exists && errorObj != nil {
+		log.Printf("❌ Pesapal error response: %+v", errorObj)
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Payment gateway error")
+		return
+	}
+
+	// ✅ Check for status field
+	if status, exists := pesapalResp["status"]; exists {
+		if statusCode, ok := status.(float64); ok && statusCode != 200 {
+			log.Printf("❌ Pesapal status error: %v", pesapalResp)
+			sendErrorResponse(ctx, http.StatusInternalServerError, "Payment gateway error")
+			return
+		}
+	}
+
+	// ✅ Extract redirect URL and tracking ID with better error handling
+	redirectURL, redirectOK := pesapalResp["redirect_url"].(string)
+	orderTrackingID, trackingOK := pesapalResp["order_tracking_id"].(string)
+
+	if !redirectOK || !trackingOK || redirectURL == "" || orderTrackingID == "" {
+		log.Printf("❌ Missing required fields in Pesapal response:")
+		log.Printf("   redirect_url: %v (type: %T)", pesapalResp["redirect_url"], pesapalResp["redirect_url"])
+		log.Printf("   order_tracking_id: %v (type: %T)", pesapalResp["order_tracking_id"], pesapalResp["order_tracking_id"])
+		log.Printf("   Full response: %+v", pesapalResp)
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Invalid payment gateway response")
+		return
+	}
+
+	// ✅ Update order with tracking ID
+	if err := initializers.DB.Model(&order).Updates(map[string]interface{}{
+		"pesapal_tracking_id": orderTrackingID,
+		"payment_status":      "PENDING",
+		"updated_at":          time.Now(),
+	}).Error; err != nil {
+		log.Printf("❌ Failed to update order with tracking ID: %v", err)
+		// Don't fail the request since Pesapal already has the order
+		// But log it for manual intervention
+		log.Printf("⚠️  CRITICAL: Order %d created but tracking ID not saved: %s", order.ID, orderTrackingID)
+	}
+
+	log.Printf("✅ Order created successfully:")
+	log.Printf("   Order ID: %d", order.ID)
+	log.Printf("   Tracking ID: %s", orderTrackingID)
+	log.Printf("   Redirect URL: %s", redirectURL)
 
 	sendJSONResponse(ctx, http.StatusOK, gin.H{
-		"message":      "Order created. Redirect user to payment.",
-		"redirect_url": redirectURL,
-		"order_id":     order.ID,
+		"message":           "Order created successfully. Redirect user to payment.",
+		"redirect_url":      redirectURL,
+		"order_id":          order.ID,
+		"order_tracking_id": orderTrackingID,
 	})
 }
 

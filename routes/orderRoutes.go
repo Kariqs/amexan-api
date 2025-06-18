@@ -8,6 +8,7 @@ import (
 
 func OrderRoutes(server *gin.Engine) {
 	server.POST("/pesapal/ipn", controllers.HandlePesapalIPN)
+	server.GET("/paymentstatus", controllers.CheckPaymentStatus)
 	server.POST("/order", middlewares.RequireAuth(), controllers.CreateOrder)
 	server.GET("/order", middlewares.RequireAuth(), middlewares.RequireAdmin(), controllers.GetOrders)
 	server.GET("/user/:userId/orders", middlewares.RequireAuth(), controllers.GetOderByCustomerId)

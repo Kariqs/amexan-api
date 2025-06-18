@@ -184,7 +184,7 @@ func CreateOrder(ctx *gin.Context) {
 func HandlePesapalIPN(ctx *gin.Context) {
 	var trackingId, merchantRef string
 
-	// Read raw body for POST requests
+	// Read and log raw body
 	bodyBytes, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
 		log.Println("Failed to read IPN body:", err)
@@ -194,38 +194,45 @@ func HandlePesapalIPN(ctx *gin.Context) {
 	log.Printf("Raw IPN Body: %s\n", string(bodyBytes))
 	ctx.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-	// Parse depending on method
+	// Handle POST body
 	if ctx.Request.Method == http.MethodPost {
-		var payload map[string]interface{}
+		type IPNPayload struct {
+			OrderTrackingId        string `json:"OrderTrackingId"`
+			OrderMerchantReference string `json:"OrderMerchantReference"`
+			OrderNotificationType  string `json:"OrderNotificationType"`
+		}
+
+		var payload IPNPayload
 		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-			log.Println("JSON Unmarshal failed:", err)
+			log.Println("JSON unmarshal failed:", err)
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 			return
 		}
-		trackingId = fmt.Sprint(payload["orderTrackingId"])
-		merchantRef = fmt.Sprint(payload["orderMerchantReference"])
+		trackingId = payload.OrderTrackingId
+		merchantRef = payload.OrderMerchantReference
 	} else {
-		trackingId = ctx.Query("orderTrackingId")
-		merchantRef = ctx.Query("orderMerchantReference")
+		// Fallback for GET requests (not recommended for IPNs)
+		trackingId = ctx.Query("OrderTrackingId")
+		merchantRef = ctx.Query("OrderMerchantReference")
 	}
 
-	// Validate required fields
 	if trackingId == "" || merchantRef == "" {
-		log.Printf("Missing fields: trackingId=%q, merchantRef=%q", trackingId, merchantRef)
+		log.Printf("Missing tracking ID or merchant reference: trackingId=%v, merchantRef=%v\n", trackingId, merchantRef)
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing parameters"})
 		return
 	}
-	log.Printf("IPN received - Tracking ID: %s | Merchant Ref: %s", trackingId, merchantRef)
+
+	log.Printf("IPN received - Tracking ID: %s | Merchant Ref: %s\n", trackingId, merchantRef)
 
 	// Get access token
 	token, err := GetPesapalAccessToken()
 	if err != nil {
-		log.Println("Failed to get access token:", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
+		log.Println("Failed to get Pesapal access token:", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Authentication with Pesapal failed"})
 		return
 	}
 
-	// Query transaction status
+	// Request payment status
 	statusURL := "https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=" + trackingId
 	log.Println("Requesting payment status from Pesapal:", statusURL)
 
@@ -233,56 +240,46 @@ func HandlePesapalIPN(ctx *gin.Context) {
 		SetHeader("Authorization", "Bearer "+token).
 		SetHeader("Accept", "application/json").
 		Get(statusURL)
+
 	if err != nil {
-		log.Println("Failed to get transaction status:", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check payment status"})
+		log.Println("Error requesting payment status:", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch transaction status"})
 		return
 	}
 
-	log.Printf("Raw response from Pesapal: %s", string(resp.Body()))
-
 	var statusResp map[string]interface{}
 	if err := json.Unmarshal(resp.Body(), &statusResp); err != nil {
-		log.Println("Failed to parse status response:", err)
+		log.Println("Failed to parse Pesapal response:", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid response from Pesapal"})
 		return
 	}
 
-	// Check for error object
+	log.Printf("Raw response from Pesapal: %s\n", string(resp.Body()))
+
 	if errObj, exists := statusResp["error"]; exists && errObj != nil {
-		log.Printf("Pesapal returned an error: %+v", errObj)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Pesapal returned an error"})
+		log.Printf("Pesapal returned an error: %+v\n", errObj)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Error in transaction response"})
 		return
 	}
 
-	// Extract payment status
 	statusDesc := fmt.Sprint(statusResp["payment_status_description"])
-	log.Printf("Payment Status from Pesapal: %s", statusDesc)
-
-	// Check if order exists before updating
-	var count int64
-	initializers.DB.Model(&models.Order{}).
-		Where("pesapal_tracking_id = ?", trackingId).
-		Count(&count)
-
-	if count == 0 {
-		log.Printf("No order found with tracking ID: %s. Cannot update payment status.", trackingId)
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+	if statusDesc == "" {
+		log.Println("Missing payment status in Pesapal response")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Missing payment status"})
 		return
 	}
 
-	// Update the payment status in DB
+	// Update order status in DB
 	if err := initializers.DB.Model(&models.Order{}).
 		Where("pesapal_tracking_id = ?", trackingId).
 		Update("payment_status", statusDesc).Error; err != nil {
-		log.Printf("Failed to update order status: %v", err)
+		log.Printf("Failed to update order for tracking ID %s: %v\n", trackingId, err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update order status"})
 		return
 	}
 
-	log.Printf("Payment status updated to [%s] for Order with Tracking ID: %s", statusDesc, trackingId)
+	log.Printf("Payment status updated in DB for tracking ID %s\n", trackingId)
 
-	// Respond to Pesapal
 	ctx.JSON(http.StatusOK, gin.H{
 		"orderNotificationType":  "IPNCHANGE",
 		"orderTrackingId":        trackingId,
@@ -290,6 +287,7 @@ func HandlePesapalIPN(ctx *gin.Context) {
 		"status":                 200,
 	})
 }
+
 
 func GetOrders(ctx *gin.Context) {
 	var orders []models.Order

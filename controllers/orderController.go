@@ -266,6 +266,30 @@ func HandlePesapalIPN(ctx *gin.Context) {
 	})
 }
 
+func CheckPaymentStatus(ctx *gin.Context) {
+	trackingId := ctx.Query("OrderTrackingId")
+
+	if trackingId == "" {
+		ctx.HTML(http.StatusBadRequest, "payment_result.tmpl", gin.H{
+			"Message": "Missing tracking ID.",
+			"Status":  "error",
+		})
+		return
+	}
+
+	var order models.Order
+	if err := initializers.DB.
+		Where("pesapal_tracking_id = ?", trackingId).
+		First(&order).Error; err != nil {
+		sendErrorResponse(ctx, 404, "Order not found")
+		return
+	}
+
+	sendJSONResponse(ctx, http.StatusOK, gin.H{
+		"paymentStatus": order.PaymentStatus,
+	})
+
+}
 
 func GetOrders(ctx *gin.Context) {
 	var orders []models.Order

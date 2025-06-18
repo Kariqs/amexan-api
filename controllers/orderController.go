@@ -121,7 +121,7 @@ func CreateOrder(ctx *gin.Context) {
 		"currency":        "KES",
 		"amount":          order.Total,
 		"description":     fmt.Sprintf("Payment for order #%d", order.ID),
-		"callback_url":    "https://amexan.store/payment/callback",
+		"callback_url":    "https://amexan.store/paymentstatus",
 		"notification_id": notificationID,
 		"billing_address": map[string]any{
 			"email_address": order.Email,
@@ -165,7 +165,7 @@ func CreateOrder(ctx *gin.Context) {
 
 	if err := initializers.DB.Model(&order).Updates(map[string]any{
 		"pesapal_tracking_id": orderTrackingID,
-		"payment_status":      "PENDING",
+		"payment_status":      "Pending",
 		"updated_at":          time.Now(),
 	}).Error; err != nil {
 		log.Printf("Order %d created, but tracking ID not saved: %s", order.ID, orderTrackingID)

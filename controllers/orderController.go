@@ -60,50 +60,73 @@ func GetPesapalAccessToken() (string, error) {
 func CreateOrder(ctx *gin.Context) {
 	var orderInfo models.Order
 	if err := ctx.ShouldBindJSON(&orderInfo); err != nil {
-		log.Printf("JSON binding error: %v", err)
 		sendErrorResponse(ctx, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	tx := initializers.DB.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+	var order models.Order
+
+	if orderInfo.ID != 0 {
+		// Handle existing order
+		if err := initializers.DB.First(&order, orderInfo.ID).Error; err != nil {
+			sendErrorResponse(ctx, http.StatusNotFound, "Order not found")
+			return
 		}
-	}()
+		if order.UserID != orderInfo.UserID {
+			sendErrorResponse(ctx, http.StatusForbidden, "Access denied")
+			return
+		}
+		if order.PaymentStatus == "Completed" {
+			sendErrorResponse(ctx, http.StatusBadRequest, "Order already paid")
+			return
+		}
+		if order.Status == "Cancelled" {
+			sendErrorResponse(ctx, http.StatusBadRequest, "Cannot pay for cancelled order")
+			return
+		}
+	} else {
+		// Create new order in transaction
+		tx := initializers.DB.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
 
-	order := models.Order{
-		UserID:           orderInfo.UserID,
-		FirstName:        orderInfo.FirstName,
-		LastName:         orderInfo.LastName,
-		Email:            orderInfo.Email,
-		Phone:            orderInfo.Phone,
-		DeliveryLocation: orderInfo.DeliveryLocation,
-		Total:            orderInfo.Total,
-		Status:           "Pending",
-		PaymentStatus:    "PENDING",
-	}
+		order = models.Order{
+			UserID:           orderInfo.UserID,
+			FirstName:        orderInfo.FirstName,
+			LastName:         orderInfo.LastName,
+			Email:            orderInfo.Email,
+			Phone:            orderInfo.Phone,
+			DeliveryLocation: orderInfo.DeliveryLocation,
+			Total:            orderInfo.Total,
+			Status:           "Pending",
+			PaymentStatus:    "Pending",
+		}
 
-	if err := tx.Create(&order).Error; err != nil {
-		tx.Rollback()
-		sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order")
-		return
-	}
-
-	for _, item := range orderInfo.OrderItems {
-		item.OrderID = int(order.ID)
-		if err := tx.Create(&item).Error; err != nil {
+		if err := tx.Create(&order).Error; err != nil {
 			tx.Rollback()
-			sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order items")
+			sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order")
+			return
+		}
+
+		for _, item := range orderInfo.OrderItems {
+			item.OrderID = int(order.ID)
+			if err := tx.Create(&item).Error; err != nil {
+				tx.Rollback()
+				sendErrorResponse(ctx, http.StatusBadRequest, "Failed to create order items")
+				return
+			}
+		}
+
+		if err := tx.Commit().Error; err != nil {
+			sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to save order")
 			return
 		}
 	}
 
-	if err := tx.Commit().Error; err != nil {
-		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to save order")
-		return
-	}
-
+	// Prepare and send payment request to Pesapal
 	token, err := GetPesapalAccessToken()
 	if err != nil {
 		sendErrorResponse(ctx, http.StatusInternalServerError, "Payment authentication failed")
@@ -145,7 +168,6 @@ func CreateOrder(ctx *gin.Context) {
 		Post("https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest")
 
 	if err != nil || resp.StatusCode() != 200 {
-		log.Printf("Pesapal error: %v, response: %s", err, resp.Body())
 		sendErrorResponse(ctx, http.StatusInternalServerError, "Failed to initiate payment")
 		return
 	}
@@ -158,26 +180,27 @@ func CreateOrder(ctx *gin.Context) {
 
 	redirectURL, rOK := pesapalResp["redirect_url"].(string)
 	orderTrackingID, tOK := pesapalResp["order_tracking_id"].(string)
+
 	if !rOK || !tOK || redirectURL == "" || orderTrackingID == "" {
-		sendErrorResponse(ctx, http.StatusInternalServerError, "Incomplete response from payment gateway")
+		sendErrorResponse(ctx, http.StatusInternalServerError, "Incomplete payment gateway response")
 		return
 	}
 
-	if err := initializers.DB.Model(&order).Updates(map[string]any{
+	// Save tracking ID
+	_ = initializers.DB.Model(&order).Updates(map[string]any{
 		"pesapal_tracking_id": orderTrackingID,
 		"payment_status":      "Pending",
 		"updated_at":          time.Now(),
-	}).Error; err != nil {
-		log.Printf("Order %d created, but tracking ID not saved: %s", order.ID, orderTrackingID)
-	}
+	}).Error
 
 	sendJSONResponse(ctx, http.StatusOK, gin.H{
-		"message":           "Order created successfully. Redirect user to payment.",
+		"message":           "Order processed successfully. Redirect user to payment.",
 		"redirect_url":      redirectURL,
 		"order_id":          order.ID,
 		"order_tracking_id": orderTrackingID,
 	})
 }
+
 
 func HandlePesapalIPN(ctx *gin.Context) {
 	var trackingId, merchantRef string

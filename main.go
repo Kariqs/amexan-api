@@ -18,7 +18,9 @@ func init() {
 func main() {
 	server := gin.Default()
 	server.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:4200", "https://www.amexan.store", "https://pay.pesapal.com"},
+		AllowOrigins: []string{
+			"http://localhost:4200","capacitor://localhost",
+			"ionic://localhost", "https://www.freeridgehub.co.ke", "https://pay.pesapal.com"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
